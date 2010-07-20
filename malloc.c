@@ -28,7 +28,7 @@
  * ----------------------------------------------------------------------------
  */
 
-/* #define MALLOC_STATS */
+#define MALLOC_STATS
 
 #include <sys/types.h>
 #include <sys/param.h>
@@ -41,12 +41,27 @@
 #include <string.h>
 #include <stdio.h>
 #include <unistd.h>
-
-#ifdef MALLOC_STATS
 #include <fcntl.h>
-#endif
 
-#include "thread_private.h"
+//#include "thread_private.h"
+
+extern int __libc_enable_secure;
+
+static int issetugid(void)
+{
+	if(__libc_enable_secure) return 1;
+	if(getuid() != geteuid()) return 1;
+	if(getgid() != getegid()) return 1;
+	return 0;
+}
+
+#define PGSHIFT (12U)
+#include <pthread.h>
+static pthread_mutex_t gen_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+#define _MALLOC_LOCK_INIT {;}
+#define _MALLOC_LOCK() {pthread_mutex_lock(&gen_mutex);}
+#define _MALLOC_UNLOCK() {pthread_mutex_unlock(&gen_mutex);}
 
 #define MALLOC_MINSHIFT		4
 #define MALLOC_MAXSHIFT		16
@@ -56,7 +71,7 @@
 #elif defined(__mips64__)
 #define MALLOC_PAGESHIFT	(14U)
 #else
-#define MALLOC_PAGESHIFT	(PGSHIFT)
+#define MALLOC_PAGESHIFT	(12U)
 #endif
 
 #define MALLOC_PAGESIZE		(1UL << MALLOC_PAGESHIFT)
@@ -383,7 +398,10 @@ wrterror(char *p)
 static void
 rbytes_init(void)
 {
-	arc4random_buf(rbytes, sizeof(rbytes));
+	int i;
+	for (i=0; i<sizeof(rbytes); i++){
+		rbytes[i] = rand()%256;
+	}
 	rnibblesused = 0;
 }
 
@@ -451,7 +469,7 @@ unmap(struct dir_info *d, void *p, size_t sz)
 		r = &d->free_regions[i];
 		if (r->p == NULL) {
 			if (mopts.malloc_hint)
-				madvise(p, sz, MADV_FREE);
+				madvise(p, sz, MADV_DONTNEED);
 			if (mopts.malloc_freeprot)
 				mprotect(p, sz, PROT_NONE);
 			r->p = p;
@@ -702,7 +720,7 @@ omalloc_init(struct dir_info **dp)
 	}
 #endif /* MALLOC_STATS */
 
-	while ((mopts.malloc_canary = arc4random()) == 0)
+	while ((mopts.malloc_canary = rand()) == 0)
 		;
 
 	/*
@@ -716,8 +734,9 @@ omalloc_init(struct dir_info **dp)
 	mprotect(p + MALLOC_PAGESIZE + DIR_INFO_RSZ,
 	    MALLOC_PAGESIZE, PROT_NONE);
 	d_avail = (DIR_INFO_RSZ - sizeof(*d)) >> MALLOC_MINSHIFT;
-	d = (struct dir_info *)(p + MALLOC_PAGESIZE +
-	    (arc4random_uniform(d_avail) << MALLOC_MINSHIFT));
+	srand(d_avail);
+	d = (struct dir_info *)(p + MALLOC_PAGESIZE/* +
+	    (rand() << MALLOC_MINSHIFT)*/);
 
 	d->regions_bits = 9;
 	d->regions_free = d->regions_total = 1 << d->regions_bits;

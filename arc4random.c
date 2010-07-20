@@ -104,7 +104,7 @@ arc4_stir(void)
 	}
 
 	mib[0] = CTL_KERN;
-	mib[1] = KERN_ARND;
+	mib[1] = KERN_RANDOM;
 
 	len = sizeof(rnd);
 	sysctl(mib, 2, rnd, &len, NULL, 0);
